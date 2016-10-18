@@ -16,9 +16,10 @@ function generate_hdf5_dataset(images_labels, result_file, image_size, run_demo,
 %h5create(filename, '/data', [dat_dims(1:end-1) maxSize], 'Datatype', 'single', 'ChunkSize', [dat_dims(1:end-1) chunksz], 'Deflate',9);  
 
 %% Pattern for reading list of images from .txt file
-pattern = '%s %d %d %d %d';
-[names, l1, l2, l3, l4] = textread(images_labels, pattern);
-labels = [l1, l2, l3, l4];
+pattern = '%s %f';
+[names, l1] = textread(images_labels, pattern);
+%disp(names)
+labels = [l1];
 %%
 list_filename = strrep(result_file, '.h5', '.txt');
 switch nargin
@@ -30,29 +31,58 @@ switch nargin
 end
 
 num_total_samples=size(names,1);
-if run_demo == true
-    if num_total_samples > 1000
-        num_total_samples = 1000;
-    end
-end
+% if run_demo == true
+%     if num_total_samples > 1000
+%         num_total_samples = 1000;
+%     end
+% end
 
+if chunksz < 10
+    chunksz = 100;
+end
 created_flag=false;
 totalct=0;
-for batchno=1:num_total_samples/chunksz
+d = load('/home/gautam/deepImageAestheticsAnalysis/experiments/aadb_mean.mat');
+mean_data = d.mean_data;
+CROPPED_DIM = 224;
+for batchno=1:num_total_samples*10/chunksz
   fprintf('batch no. %d\n', batchno);
-  last_read=(batchno-1)*chunksz;
+  last_read=(batchno-1)*chunksz/10;
   batchImages = [];
   batchLabels = [];
-  for i = 1 : chunksz
+  count = 0;
+  for i = 1 : chunksz/10
+      %upperleft,lowerleft,upperright,lowerright and mirror images
+     
       imgPath = names(last_read+i);
+     % disp (last_read+i)
+     % disp (imgPath)
       img = imread(imgPath{1});
+      label = labels(last_read+i,:);
+    %  disp(size(label));
+    %  disp(size(labels));
+      all_labels = repmat(label,10,1);
+   %   disp(size(all_labels));
 	  if size(img,1) ~= size(image_size,1) || size(img,2) ~= size(image_size,2)
 		img = imresize(img, image_size);
-	  end
-      batchImages(:,:,:,i) = img;
-      batchLabels = [batchLabels; labels(last_read+i,:)];
+      end
+    %  disp(size(img))  
+      if size(img,3) ==3
+        start = (count)*10 + 1;
+        ending = start+9;
+        batchImages(:,:,:,start:ending) = prepare_image(img,mean_data);
+        batchLabels = [batchLabels; all_labels];
+        count = count + 1;
+      end
+        
+     
   end
-
+  num = size(batchImages,4);
+  shuf_order = randperm(num);
+  %disp(size(batchLabels));
+  %disp(size(batchImages));
+  batchImages = batchImages(:,:,:,shuf_order);
+  batchLabels = batchLabels(shuf_order,:);
   % store to hdf5
   startloc=struct('dat',[1,1,1,totalct+1], 'lab', [1,totalct+1]);
   curr_dat_sz=store2hdf5(result_file, batchImages, batchLabels', ~created_flag, startloc, chunksz, Inf); 
